@@ -8,6 +8,11 @@
 const pool = require('../config/database') //Importa o pool de conexões do banco de dados para realizar as consultas SQL
 
 const UserModel = {
+    async isAdmin(id) { //Retorna true só se o usuário existir e for administrador
+        const result = await pool.query('SELECT is_admin FROM users WHERE id = $1', [id])
+        return result.rows[0]?.is_admin === true
+    },
+
     async findByEmail(email) { //Função para buscar um usuário pelo email
         const query = 'SELECT * FROM users WHERE email = $1' //Query SQL para selecionar o usuário com o email fornecido
         const values = [email] //Valores para a query, usando parâmetros para evitar SQL Injection

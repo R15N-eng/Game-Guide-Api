@@ -9,14 +9,17 @@
 
 const express = require('express') //Importa o Express para criar as rotas
 const GameController = require('../controllers/gameController') //Importa o GameController para usar as funções de lógica das rotas de jogos
+const authMiddleware = require('../middleware/authMiddleware') //Confere o token (401 se faltar ou for inválido)
+const adminMiddleware = require('../middleware/adminMiddleware') //Confere o papel (403 se não for administrador)
+const adminOnly = [authMiddleware, adminMiddleware] //A ordem importa: primeiro quem é, depois o que pode
 
 const router = express.Router() //Cria um roteador do Express para definir as rotas relacionadas aos jogos
 
 // Define as rotas para os jogos, associando cada rota à função correspondente no GameController
 router.get('/', GameController.getAll) //Rota para listar todos os jogos
 router.get('/:id', GameController.getById) //Rota para obter o detalhe de um jogo específico por id
-router.post('/', GameController.create) //Rota para criar um novo jogo (pode ser protegida futuramente)
-router.put('/:id', GameController.update) //Rota para editar um jogo existente por id (pode ser protegida futuramente)
-router.delete('/:id', GameController.delete) //Rota para deletar um jogo por id (pode ser protegida futuramente)
+router.post('/', adminOnly, GameController.create) //Rota para criar um novo jogo (somente administradores)
+router.put('/:id', adminOnly, GameController.update) //Rota para editar um jogo existente por id (somente administradores)
+router.delete('/:id', adminOnly, GameController.delete) //Rota para deletar um jogo por id (somente administradores)
 
 module.exports = router //Exporta o roteador para ser usado no arquivo principal do servidor (app.js) para registrar as rotas de jogos na aplicação Express 
