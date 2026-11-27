@@ -39,7 +39,7 @@ As duas maiores novidades em relação ao Task App foram a **autenticação JWT*
 | Banco         | PostgreSQL                          |
 | Autenticação  | JWT (jsonwebtoken) + bcryptjs       |
 | Ambiente      | dotenv                              |
-| Dev           | nodemon                             |
+| Dev           | `node --watch`                      |
 
 ---
 
@@ -50,6 +50,8 @@ game-guide-api/
 └── src/
     ├── config/
     │   ├── database.js          # Conexão com PostgreSQL (Pool)
+    │   ├── env.js               # Recusa configuração insegura
+    │   ├── migrations/          # Ajustes para bancos já criados
     │   └── schema.sql           # Criação das tabelas
     ├── models/                  # Queries SQL isoladas
     │   ├── userModel.js
@@ -67,8 +69,13 @@ game-guide-api/
     │   ├── achievementRoutes.js
     │   └── progressRoutes.js
     ├── middleware/
-    │   └── authMiddleware.js    # Verificação do token JWT
+    │   ├── authMiddleware.js    # Verificação do token JWT
+    │   ├── adminMiddleware.js   # Somente administradores
+    │   ├── rateLimit.js         # Limite de tentativas no login e no cadastro
+    │   └── validate.js          # Validação dos dados de entrada
     └── server.js                # Porta de entrada
+test/
+└── security.test.js             # Testes de acesso, entrada e limites
 ```
 
 ---
@@ -94,23 +101,23 @@ As tabelas usam **foreign keys com ON DELETE CASCADE** — dados relacionados s�
 | POST   | /auth/register     | Criar conta      |
 | POST   | /auth/login        | Login + token    |
 
-### Games (público)
+### Games (leitura pública, escrita somente para administradores)
 | Método | Rota           | Descrição         |
 |--------|----------------|-------------------|
 | GET    | /games         | Listar jogos      |
 | GET    | /games/:id     | Detalhe do jogo   |
-| POST   | /games         | Criar jogo        |
-| PUT    | /games/:id     | Editar jogo       |
-| DELETE | /games/:id     | Deletar jogo      |
+| POST   | /games         | 🔒 Criar jogo (admin) |
+| PUT    | /games/:id     | 🔒 Editar jogo (admin) |
+| DELETE | /games/:id     | 🔒 Deletar jogo (admin) |
 
-### Achievements (público)
+### Achievements (leitura pública, escrita somente para administradores)
 | Método | Rota                              | Descrição              |
 |--------|-----------------------------------|------------------------|
 | GET    | /games/:gameId/achievements       | Listar conquistas      |
 | GET    | /games/:gameId/achievements/:id   | Detalhe da conquista   |
-| POST   | /games/:gameId/achievements       | Criar conquista        |
-| PUT    | /games/:gameId/achievements/:id   | Editar conquista       |
-| DELETE | /games/:gameId/achievements/:id   | Deletar conquista      |
+| POST   | /games/:gameId/achievements       | 🔒 Criar conquista (admin) |
+| PUT    | /games/:gameId/achievements/:id   | 🔒 Editar conquista (admin) |
+| DELETE | /games/:gameId/achievements/:id   | 🔒 Deletar conquista (admin) |
 
 ### Progress (🔒 protegido — requer token JWT)
 | Método | Rota                        | Descrição                    |
@@ -124,7 +131,7 @@ As tabelas usam **foreign keys com ON DELETE CASCADE** — dados relacionados s�
 ## Como rodar localmente
 
 ### Pré-requisitos
-- Node.js 18+
+- Node.js 18.11+
 - PostgreSQL instalado e rodando
 
 ### 1. Clone o repositório
@@ -144,7 +151,9 @@ CREATE DATABASE gameguide;
 ### 3. Configure as variáveis de ambiente
 ```bash
 cp .env.example .env
-# Edite o .env com sua senha do PostgreSQL e um JWT_SECRET forte
+# Edite o .env: DB_PASSWORD e JWT_SECRET (obrigatório, 32+ caracteres)
+# Para gerar um segredo:
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 ```
 
 ### 4. Instale e rode
@@ -153,6 +162,72 @@ npm install
 npm run dev
 # API rodando em http://localhost:3001
 ```
+
+---
+
+## Segurança
+
+### Códigos de resposta
+
+| Situação | Código |
+|----------|--------|
+| Sem token, ou token inválido, expirado ou assinado de outra forma | 401 |
+| Token válido, mas o usuário não é administrador (rotas de escrita do catálogo) | 403 |
+| Dados ou identificadores inválidos | 400 |
+| Registro inexistente | 404 |
+| Muitas tentativas | 429 |
+| Administrador com dados válidos | 200 ou 201 |
+
+### O que está protegido
+
+- **Administração:** o papel é lido do banco a cada requisição. O cadastro é aberto e **nunca** cria administradores.
+- **Progresso:** o usuário vem sempre do token. Ninguém lê ou altera o progresso de outra pessoa, e a mesma conquista não é contada duas vezes.
+- **Tentativas:** 10 logins errados a cada 15 minutos e 20 cadastros por hora, por IP.
+- **Entrada:** tipos e tamanhos são conferidos antes do banco. As consultas SQL usam parâmetros.
+- **CORS:** nenhum site externo pode chamar a API pelo navegador, a não ser os listados em `CORS_ORIGINS`.
+- **Segredos:** o servidor não sobe sem um `JWT_SECRET` com 32 caracteres ou mais.
+
+Para promover um usuário a administrador, rode no seu banco:
+
+```sql
+UPDATE users SET is_admin = TRUE WHERE email = 'seu-email@exemplo.com';
+```
+
+### Banco criado antes dessas mudanças
+
+Rode as migrações, nesta ordem. A segunda **apaga linhas repetidas** de progresso, mantendo a mais antiga:
+
+```bash
+psql -U postgres -d gameguide -f src/config/migrations/001_add_is_admin.sql
+psql -U postgres -d gameguide -f src/config/migrations/002_unique_user_progress.sql
+```
+
+### Aviso sobre o histórico
+
+Versões antigas do `.env.example` tinham valores preenchidos para a senha do banco e o `JWT_SECRET`. Eles continuam no histórico do Git e **devem ser considerados públicos**. Não use esses valores em nenhum ambiente. Se algum ambiente seu já os usou, troque-os antes de rodar a API de novo.
+
+### Limitações conhecidas
+
+Este é um projeto de estudo e não há uma versão publicada. Antes de usar em produção:
+
+- o contador de tentativas fica em memória (vale para uma instância e zera ao reiniciar);
+- o cadastro informa quando um email já existe, o que permite descobrir contas;
+- não há confirmação de email, troca de senha nem revogação de token antes do vencimento (1 hora);
+- as listagens não têm paginação;
+- HTTPS fica a cargo da hospedagem.
+
+---
+
+## Testes
+
+Os testes sobem o servidor contra um PostgreSQL **descartável** (as tabelas são apagadas). O nome do banco precisa terminar em `_test`.
+
+```bash
+createdb -U postgres gameguide_test
+npm test
+```
+
+Os mesmos testes rodam no GitHub Actions em cada pull request e a cada push na `main`.
 
 ---
 

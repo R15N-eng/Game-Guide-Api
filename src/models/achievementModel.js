@@ -17,9 +17,9 @@ const AchievementModel = {
         return result.rows //Retorna todas as conquistas encontradas para o jogo
     },
     
-    async getById(id) { //Função para buscar uma conquista por id
-        const query = 'SELECT * FROM achievements WHERE id = $1' //Query SQL para selecionar a conquista com o id fornecido
-        const values = [id] //Valores para a query, usando  parâmetros para evitar SQL Injection
+    async getById(id, gameId) { //Função para buscar uma conquista por id
+        const query = 'SELECT * FROM achievements WHERE id = $1 AND game_id = $2' //Query SQL para selecionar a conquista com o id fornecido
+        const values = [id, gameId] //Valores para a query, usando  parâmetros para evitar SQL Injection
         const result = await pool.query(query, values) //Executa a query no banco de dados
         return result.rows[0] //Retorna o primeiro resultado encontrado (deve ser único)
     },
@@ -31,16 +31,16 @@ const AchievementModel = {
         return result.rows[0] //Retorna a conquista recém-criada
     },
     
-    async update(id, data) { //Função para editar uma conquista existente com o id e os novos dados fornecidos
-        const query = 'UPDATE achievements SET game_id = $1, name = $2, description = $3, tips = $4, is_missable = $5, trophy_type = $6 WHERE  id = $7 RETURNING *' //Query SQL para atualizar a conquista com o id fornecido e retornar os dados atualizados
-        const values = [data.game_id, data.name, data.description, data.tips, data.is_missable, data.trophy_type, id] //Valores para a query
+    async update(id, gameId, data) { //Função para editar uma conquista existente com o id e os novos dados fornecidos
+        const query = 'UPDATE achievements SET name = $1, description = $2, tips = $3, is_missable = $4, trophy_type = $5 WHERE id = $6 AND game_id = $7 RETURNING *' //Query SQL para atualizar a conquista com o id fornecido e retornar os dados atualizados
+        const values = [data.name, data.description, data.tips, data.is_missable, data.trophy_type, id, gameId] //Valores para a query
         const result = await pool.query(query, values) //Executa a query no banco de dados
         return result.rows[0] //Retorna a conquista atualizada
     },
     
-    async delete(id) { //Função para deletar uma conquista por id
-        const query = 'DELETE FROM achievements WHERE id = $1 RETURNING *' //Query SQL para deletar a conquista com o id fornecido e retornar os dados da conquista deletada
-        const values = [id] //Valores para a query
+    async delete(id, gameId) { //Função para deletar uma conquista por id
+        const query = 'DELETE FROM achievements WHERE id = $1 AND game_id = $2 RETURNING *' //Query SQL para deletar a conquista com o id fornecido e retornar os dados da conquista deletada
+        const values = [id, gameId] //Valores para a query
         const result = await pool.query(query, values) //Executa a query no banco de dados
         return result.rows[0] //Retorna a conquista deletada (pode ser útil para confirmação)
     },

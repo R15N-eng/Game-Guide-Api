@@ -22,9 +22,9 @@ const AchievementController = {
     },
 
     async getById(req, res) { //Função para buscar uma conquista específica por id
-        const { id } = req.params //Desestrutura o id dos parâmetros da rota
+        const { id, gameId } = req.params //Desestrutura os ids dos parâmetros da rota
         try {
-            const achievement = await AchievementModel.getById(id) //Chama a função do model para obter a conquista pelo id
+            const achievement = await AchievementModel.getById(id, gameId) //Chama a função do model para obter a conquista pelo id
             if (!achievement) { //Se a conquista não for encontrada, retorna um erro 404
                 return res.status(404).json({ error: 'Conquista não encontrada' })
             }
@@ -36,21 +36,25 @@ const AchievementController = {
     },
 
     async create(req, res) { //Função para cadastrar uma nova conquista (a implementação completa pode ser feita futuramente)
-        const { game_id, name, description, tips, is_missable, trophy_type } = req.body //Desestrutura os dados da conquista do corpo da requisição
+        const { gameId } = req.params //O jogo vem sempre da URL, nunca do corpo
+        const { name, description, tips, is_missable, trophy_type } = req.body //Desestrutura os dados da conquista do corpo da requisição
         try {
-            const newAchievement = await AchievementModel.create({ game_id, name, description, tips, is_missable, trophy_type }) //Chama a função do model para criar uma nova conquista com os dados fornecidos
+            const newAchievement = await AchievementModel.create({ game_id: gameId, name, description, tips, is_missable, trophy_type }) //Chama a função do model para criar uma nova conquista com os dados fornecidos
             res.status(201).json(newAchievement) //Retorna a conquista recém-criada com status 201
         } catch (error) {
+            if (error.code === '23503') { //Chave estrangeira: o jogo não existe
+                return res.status(404).json({ error: 'Jogo não encontrado' })
+            }
             console.error('Erro ao criar conquista:', error.message) //Loga o erro no console
             res.status(500).json({ error: 'Erro ao criar conquista' }) //Retorna um erro 500 com uma mensagem de erro
         }
     },
 
     async update(req, res) { //Função para editar uma conquista existente (a implementação completa pode ser feita futuramente)
-        const { id } = req.params //Desestrutura o id dos parâmetros da rota
-        const { game_id, name, description, tips, is_missable, trophy_type } = req.body //Desestrutura os novos dados da conquista do corpo da requisição
+        const { id, gameId } = req.params //Desestrutura os ids dos parâmetros da rota
+        const { name, description, tips, is_missable, trophy_type } = req.body //Desestrutura os novos dados da conquista do corpo da requisição
         try {
-            const updatedAchievement = await AchievementModel.update(id, { game_id, name, description, tips, is_missable, trophy_type }) //Chama a função do model para atualizar a conquista com o id e os novos dados fornecidos
+            const updatedAchievement = await AchievementModel.update(id, gameId, { name, description, tips, is_missable, trophy_type }) //Chama a função do model para atualizar a conquista com o id e os novos dados fornecidos
             if (!updatedAchievement) { //Se a conquista não for encontrada para atualização, retorna um erro 404
                 return res.status(404).json({ error: 'Conquista não encontrada' })
             }
@@ -62,9 +66,9 @@ const AchievementController = {
     },
 
     async delete(req, res) { //Função para deletar uma conquista por id (a implementação completa pode ser feita futuramente)
-        const { id } = req.params //Desestrutura o id dos parâmetros da rota
+        const { id, gameId } = req.params //Desestrutura os ids dos parâmetros da rota
         try {
-            const deletedAchievement = await AchievementModel.delete(id) //Chama a função do model para deletar a conquista pelo id
+            const deletedAchievement = await AchievementModel.delete(id, gameId) //Chama a função do model para deletar a conquista pelo id
             if (!deletedAchievement) { //Se a conquista não for encontrada para deleção, retorna um erro 404
                 return res.status(404).json({ error: 'Conquista não encontrada' })
             }
