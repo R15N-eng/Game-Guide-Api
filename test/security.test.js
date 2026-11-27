@@ -177,3 +177,157 @@ test('servidor se recusa a subir sem JWT_SECRET forte', () => {
         assert.match(run.stderr, /JWT_SECRET/)
     }
 })
+
+// ---- entrada, progresso, CORS e limite de tentativas ----
+
+// Sobe um segundo servidor, para testar configurações sem interferir no principal
+async function withServer(extraEnv, run) {
+    const port = PORT + 100 + crypto.randomInt(1, 500)
+    const child = spawn(process.execPath, ['src/server.js'], { cwd: ROOT, env: { ...ENV, PORT: String(port), ...extraEnv } })
+    try {
+        await new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('servidor não subiu')), 8000)
+            child.stdout.on('data', (d) => { if (String(d).includes('Servidor rodando')) { clearTimeout(timer); resolve() } })
+            child.on('exit', (code) => reject(new Error(`servidor encerrou com código ${code}`)))
+        })
+        await run(`http://127.0.0.1:${port}`)
+    } finally {
+        child.kill()
+    }
+}
+
+test('dados de catálogo inválidos: 400 e nada muda', async () => {
+    await pool.query('UPDATE users SET is_admin = TRUE WHERE id = $1', [adminId])
+    const snapshot = await catalog()
+    const cases = [
+        ['POST', '/games', {}],
+        ['POST', '/games', { title: '   ' }],
+        ['POST', '/games', { title: 'x'.repeat(256) }],
+        ['POST', '/games', { title: 'ok', release_year: '1999' }],
+        ['POST', '/games', { title: 'ok', cover_url: 'javascript:alert(1)' }],
+        ['PUT', '/games/1', { title: 123 }],
+        ['POST', '/games/1/achievements', { name: 'sem tipo' }],
+        ['PUT', '/games/1/achievements/1', { ...ACHIEVEMENT, is_missable: 'sim' }],
+        ['PUT', '/games/abc', GAME],
+        ['DELETE', '/games/99999999999'],
+        ['DELETE', '/games/1/achievements/0'],
+        ['POST', '/games/abc/achievements', ACHIEVEMENT],
+    ]
+    for (const [method, url, body] of cases) {
+        const res = await call(method, url, { token: adminToken, body })
+        assert.equal(res.status, 400, `${method} ${url} ${JSON.stringify(body)?.slice(0, 60)}`)
+    }
+    assert.equal(await catalog(), snapshot)
+    assert.equal((await call('POST', '/games/9999/achievements', { token: adminToken, body: ACHIEVEMENT })).status, 404)
+})
+
+test('a autorização é conferida antes da validação dos dados', async () => {
+    assert.equal((await call('POST', '/games', { body: {} })).status, 401)
+    assert.equal((await call('POST', '/games', { token: userToken, body: {} })).status, 403)
+    assert.equal((await call('POST', '/progress/abc')).status, 401)
+})
+
+test('cadastro e login recusam entradas inválidas', async () => {
+    const bad = [
+        {}, { email: 'sem-arroba', password: 'senha-longa-ok' }, { email: 'a@b.co', password: 'curta' },
+        { email: 'a@b.co', password: 'x'.repeat(73) }, { email: ['a@b.co'], password: 'senha-longa-ok' },
+        { email: 'a@b.co', password: 12345678901 },
+    ]
+    for (const body of bad) {
+        assert.equal((await call('POST', '/auth/register', { body })).status, 400, JSON.stringify(body).slice(0, 60))
+    }
+    assert.equal((await call('POST', '/auth/login', { body: { email: 'a@b.co', password: { $ne: null } } })).status, 400)
+})
+
+test('JSON malformado: 400 em JSON, sem detalhes internos', async () => {
+    const res = await fetch(`${BASE}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"email":' })
+    const text = await res.text()
+    assert.equal(res.status, 400)
+    assert.doesNotMatch(text, /SyntaxError|node_modules|at /)
+    assert.equal(res.headers.get('x-powered-by'), null)
+})
+
+test('progresso: sem duplicatas, isolado por usuário e com 404 correto', async () => {
+    await pool.query('DELETE FROM user_progress')
+    const first = await call('POST', '/progress/1', { token: userToken })
+    const again = await call('POST', '/progress/1', { token: userToken })
+    assert.equal(first.status, 200)
+    assert.equal(again.status, 200)
+    assert.equal(again.body.id, first.body.id)
+    await Promise.all(Array.from({ length: 8 }, () => call('POST', '/progress/1', { token: userToken })))
+    assert.equal((await pool.query('SELECT COUNT(*)::int AS n FROM user_progress')).rows[0].n, 1)
+
+    // outro usuário não vê nem apaga o progresso do primeiro
+    const other = await call('GET', '/progress/1', { token: adminToken })
+    assert.ok(other.body.progress.every((row) => row.completed_at === null))
+    assert.equal((await call('DELETE', '/progress/1', { token: adminToken })).status, 404)
+    assert.equal((await pool.query('SELECT COUNT(*)::int AS n FROM user_progress')).rows[0].n, 1)
+
+    assert.equal((await call('DELETE', '/progress/1', { token: userToken })).status, 200)
+    assert.equal((await call('DELETE', '/progress/1', { token: userToken })).status, 404)
+    assert.equal((await call('POST', '/progress/9999', { token: userToken })).status, 404)
+    assert.equal((await call('GET', '/progress/2', { token: userToken })).body.percentage, 0)
+})
+
+test('migrações 001 e 002 atualizam um banco antigo e podem repetir', async () => {
+    const client = await pool.connect()
+    try {
+        await client.query('DROP SCHEMA IF EXISTS legado CASCADE; CREATE SCHEMA legado; SET search_path TO legado')
+        await client.query(`CREATE TABLE users (id SERIAL PRIMARY KEY, email TEXT);
+            CREATE TABLE user_progress (id SERIAL PRIMARY KEY, user_id INT, achievement_id INT);
+            INSERT INTO user_progress (user_id, achievement_id) VALUES (1,1),(1,1),(1,1),(1,2),(2,1);`)
+        for (let round = 0; round < 2; round++) {
+            for (const file of ['001_add_is_admin.sql', '002_unique_user_progress.sql']) {
+                await client.query(fs.readFileSync(path.join(ROOT, 'src/config/migrations', file), 'utf8'))
+            }
+        }
+        const rows = await client.query('SELECT id FROM user_progress ORDER BY id')
+        assert.deepEqual(rows.rows.map((r) => r.id), [1, 4, 5])
+        await assert.rejects(client.query('INSERT INTO user_progress (user_id, achievement_id) VALUES (1,1)'), { code: '23505' })
+    } finally {
+        await client.query('SET search_path TO public; DROP SCHEMA IF EXISTS legado CASCADE')
+        client.release()
+    }
+})
+
+test('CORS: nenhuma origem por padrão; só as listadas quando configurado', async () => {
+    const preflight = (base, origin) => fetch(`${base}/games`, {
+        method: 'OPTIONS', headers: { Origin: origin, 'Access-Control-Request-Method': 'POST' },
+    }).then((res) => res.headers.get('access-control-allow-origin'))
+
+    await withServer({ CORS_ORIGINS: '' }, async (base) => {
+        assert.equal(await preflight(base, 'https://qualquer.example'), null)
+    })
+    await withServer({ CORS_ORIGINS: 'https://app.example, https://admin.example' }, async (base) => {
+        assert.equal(await preflight(base, 'https://app.example'), 'https://app.example')
+        assert.equal(await preflight(base, 'https://qualquer.example'), null)
+    })
+})
+
+test('login: 429 depois de 10 falhas; acertos não contam', async () => {
+    await withServer({}, async (base) => {
+        const email = 'limite@example.test'
+        const password = 'senha-correta-de-teste'
+        const post = (route, body) => fetch(base + route, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        }).then((res) => res.status)
+
+        assert.equal(await post('/auth/register', { email, password }), 201)
+        for (let i = 0; i < 15; i++) assert.equal(await post('/auth/login', { email, password }), 200)
+        for (let i = 0; i < 10; i++) assert.equal(await post('/auth/login', { email, password: 'errada-de-teste' }), 400)
+        assert.equal(await post('/auth/login', { email, password: 'errada-de-teste' }), 429)
+        assert.equal(await post('/auth/login', { email, password }), 429)
+    })
+})
+
+test('cadastro: 429 depois de 20 tentativas por hora', async () => {
+    await withServer({}, async (base) => {
+        const statuses = []
+        for (let i = 0; i < 21; i++) {
+            const res = await fetch(`${base}/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+            statuses.push(res.status)
+        }
+        assert.deepEqual(statuses.slice(0, 20), Array(20).fill(400))
+        assert.equal(statuses[20], 429)
+    })
+})

@@ -16,7 +16,7 @@ const ProgressController = {
             const percentage = await ProgressModel.getPercentage(userId, gameId) //Chama a função do model para calcular a porcentagem de conquistas completadas pelo usuário para o jogo específico
             res.json({ progress, percentage }) //Retorna o progresso e a porcentagem em formato JSON
         } catch (error) {
-            console.error('Erro ao obter progresso:', error ) //Loga o erro no console
+            console.error('Erro ao obter progresso:', error.message) //Loga o erro no console
             res.status(500).json({ error: 'Erro ao obter progresso' }) //Retorna um erro 500 com uma mensagem de erro
         }
     },
@@ -28,7 +28,10 @@ const ProgressController = {
             const result = await ProgressModel.complete(userId, achievementId) //Chama a função do model para marcar a conquista como feita para o usuário
             res.json(result) //Retorna o resultado da operação em formato JSON (pode ser útil para confirmação)
         } catch (error) {
-            console.error('Erro ao completar conquista:', error ) //Loga o erro no console
+            if (error.code === '23503') { //Chave estrangeira: a conquista não existe
+                return res.status(404).json({ error: 'Conquista não encontrada' })
+            }
+            console.error('Erro ao completar conquista:', error.message) //Loga o erro no console
             res.status(500).json({ error: 'Erro ao completar conquista' }) //Retorna um erro 500 com uma mensagem de erro
         }
     },
@@ -38,9 +41,12 @@ const ProgressController = {
         const { achievementId } = req.params //Desestrutura o achievementId dos parâmetros da rota
         try {
             const result = await ProgressModel.uncomplete(userId, achievementId) //Chama a função do model para desmarcar a conquista como feita para o usuário
+            if (!result) { //Não estava marcada para este usuário
+                return res.status(404).json({ error: 'Progresso não encontrado' })
+            }
             res.json(result) //Retorna o resultado da operação em formato JSON (pode ser útil para confirmação)
         } catch (error) {
-            console.error('Erro ao descompletar conquista:', error ) //Loga o erro no console
+            console.error('Erro ao descompletar conquista:', error.message) //Loga o erro no console
             res.status(500).json({ error: 'Erro ao descompletar conquista' }) //Retorna um erro 500 com uma mensagem de erro
         }
     },

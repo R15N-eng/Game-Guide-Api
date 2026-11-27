@@ -25,7 +25,10 @@ const AuthController = {
             const token = jwt.sign({ userId: newUser.id }, process.env.JWT_SECRET, { expiresIn: '1h' }) //Gera um token JWT contendo o id do usuário, usando a chave secreta do ambiente e definindo expiração de 1 hora
             res.status(201).json({ token }) //Retorna o token JWT para o cliente
         } catch (error) {
-            console.error('Erro ao registrar usuário:', error) //Loga qualquer erro que ocorrer durante o processo de registro
+            if (error.code === '23505') { //Dois cadastros simultâneos com o mesmo email
+                return res.status(400).json({ message: 'Email já registrado' })
+            }
+            console.error('Erro ao registrar usuário:', error.message) //Loga só a mensagem, sem dados do usuário
             res.status(500).json({ message: 'Erro interno do servidor' }) //Retorna erro 500 em caso de erro no servidor
         }
     },
@@ -47,7 +50,7 @@ const AuthController = {
             const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' }) //Gera um token JWT contendo o id do usuário, usando a chave secreta do ambiente e definindo expiração de 1 hora
             res.json({ token }) //Retorna o token JWT para o cliente
         } catch (error) {
-            console.error('Erro ao autenticar usuário:', error) //Loga qualquer erro que ocorrer durante o processo de login
+            console.error('Erro ao autenticar usuário:', error.message) //Loga qualquer erro que ocorrer durante o processo de login
             res.status(500).json({ message: 'Erro interno do servidor' }) //Retorna erro 500 em caso de erro no servidor
         }
     },

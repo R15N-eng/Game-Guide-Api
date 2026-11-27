@@ -42,6 +42,9 @@ const AchievementController = {
             const newAchievement = await AchievementModel.create({ game_id: gameId, name, description, tips, is_missable, trophy_type }) //Chama a função do model para criar uma nova conquista com os dados fornecidos
             res.status(201).json(newAchievement) //Retorna a conquista recém-criada com status 201
         } catch (error) {
+            if (error.code === '23503') { //Chave estrangeira: o jogo não existe
+                return res.status(404).json({ error: 'Jogo não encontrado' })
+            }
             console.error('Erro ao criar conquista:', error.message) //Loga o erro no console
             res.status(500).json({ error: 'Erro ao criar conquista' }) //Retorna um erro 500 com uma mensagem de erro
         }

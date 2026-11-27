@@ -34,6 +34,7 @@ CREATE TABLE user_progress (
   id             SERIAL PRIMARY KEY,
   user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   achievement_id INTEGER NOT NULL REFERENCES achievements(id) ON DELETE CASCADE,
-  completed_at   TIMESTAMP DEFAULT NOW()
+  completed_at   TIMESTAMP DEFAULT NOW(),
+  CONSTRAINT user_progress_user_achievement_key UNIQUE (user_id, achievement_id)
 );
 

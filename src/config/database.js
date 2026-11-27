@@ -13,12 +13,8 @@ const pool = new Pool({ //Criação do pool de conexões com as variáveis do .e
   database: process.env.DB_NAME,
 })
 
-pool.connect((err) => {
-  if (err) {
-    console.error('Erro ao conectar ao banco:', err.message)//Mensagem caso dê erro de conexão
-  } else {
-    console.log('Conectado ao PostgreSQL!')//Mensagem de sucesso na conexão
-  }
-})
+pool.query('SELECT 1') //Testa a conexão e já devolve o cliente ao pool
+  .then(() => console.log('Conectado ao PostgreSQL!'))//Mensagem de sucesso na conexão
+  .catch((err) => console.error('Erro ao conectar ao banco:', err.message))//Mensagem caso dê erro de conexão
 
 module.exports = pool //Exporta o pool para ser usado em outros arquivos, como os controllers, para realizar consultas ao banco de dados

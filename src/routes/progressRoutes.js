@@ -9,11 +9,15 @@ const express = require('express') //Importa o Express para criar as rotas
 const ProgressController = require('../controllers/progressController') //Importa o ProgressController para usar as funções de lógica das rotas de progresso
 const authMiddleware = require('../middleware/authMiddleware') //Importa o middleware de autenticação para proteger as rotas
 
+const { validateId } = require('../middleware/validate')
+
 const router = express.Router() //Cria um roteador do Express para definir as rotas relacionadas ao progresso do usuário
 
+const validParam = (name) => (req, res, next) => validateId(req, res, next, req.params[name])
+
 // Define as rotas para o progresso, associando cada rota à função correspondente no ProgressController e protegendo com o middleware de autenticação
-router.get('/:gameId', authMiddleware, ProgressController.getProgress) //Rota para obter o progresso do usuário logado em um jogo específico (protegida)
-router.post('/:achievementId', authMiddleware, ProgressController.complete) //Rota para marcar uma conquista como feita para o usuário logado (protegida)
-router.delete('/:achievementId', authMiddleware, ProgressController.uncomplete) //Rota para desmarcar uma conquista como feita para o usuário logado (protegida)
+router.get('/:gameId', authMiddleware, validParam('gameId'), ProgressController.getProgress) //Rota para obter o progresso do usuário logado em um jogo específico (protegida)
+router.post('/:achievementId', authMiddleware, validParam('achievementId'), ProgressController.complete) //Rota para marcar uma conquista como feita para o usuário logado (protegida)
+router.delete('/:achievementId', authMiddleware, validParam('achievementId'), ProgressController.uncomplete) //Rota para desmarcar uma conquista como feita para o usuário logado (protegida)
 
 module.exports = router //Exporta o roteador para ser usado no arquivo principal do servidor (app.js) para registrar as rotas de progresso na aplicação Express 
