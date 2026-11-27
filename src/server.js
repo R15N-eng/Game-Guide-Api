@@ -6,6 +6,7 @@
 const express = require('express') //Importa o Express para criar o servidor e as rotas
 const cors = require('cors') //Importa o CORS para permitir requisições de outros domínios
 require('dotenv').config() //Carrega as variáveis de ambiente do arquivo .env
+require('./config/env').assertSecureEnv() //Não sobe sem um JWT_SECRET forte
 
 const authRoutes = require('./routes/authRoutes') //Importa as rotas de autenticação
 const gameRoutes = require('./routes/gameRoutes') //Importa as rotas de jogos
