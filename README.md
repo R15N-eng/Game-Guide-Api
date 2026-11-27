@@ -94,23 +94,23 @@ As tabelas usam **foreign keys com ON DELETE CASCADE** — dados relacionados s�
 | POST   | /auth/register     | Criar conta      |
 | POST   | /auth/login        | Login + token    |
 
-### Games (público)
+### Games (leitura pública, escrita somente para administradores)
 | Método | Rota           | Descrição         |
 |--------|----------------|-------------------|
 | GET    | /games         | Listar jogos      |
 | GET    | /games/:id     | Detalhe do jogo   |
-| POST   | /games         | Criar jogo        |
-| PUT    | /games/:id     | Editar jogo       |
-| DELETE | /games/:id     | Deletar jogo      |
+| POST   | /games         | 🔒 Criar jogo (admin) |
+| PUT    | /games/:id     | 🔒 Editar jogo (admin) |
+| DELETE | /games/:id     | 🔒 Deletar jogo (admin) |
 
-### Achievements (público)
+### Achievements (leitura pública, escrita somente para administradores)
 | Método | Rota                              | Descrição              |
 |--------|-----------------------------------|------------------------|
 | GET    | /games/:gameId/achievements       | Listar conquistas      |
 | GET    | /games/:gameId/achievements/:id   | Detalhe da conquista   |
-| POST   | /games/:gameId/achievements       | Criar conquista        |
-| PUT    | /games/:gameId/achievements/:id   | Editar conquista       |
-| DELETE | /games/:gameId/achievements/:id   | Deletar conquista      |
+| POST   | /games/:gameId/achievements       | 🔒 Criar conquista (admin) |
+| PUT    | /games/:gameId/achievements/:id   | 🔒 Editar conquista (admin) |
+| DELETE | /games/:gameId/achievements/:id   | 🔒 Deletar conquista (admin) |
 
 ### Progress (🔒 protegido — requer token JWT)
 | Método | Rota                        | Descrição                    |
@@ -144,7 +144,9 @@ CREATE DATABASE gameguide;
 ### 3. Configure as variáveis de ambiente
 ```bash
 cp .env.example .env
-# Edite o .env com sua senha do PostgreSQL e um JWT_SECRET forte
+# Edite o .env: DB_PASSWORD e JWT_SECRET (obrigatório, 32+ caracteres)
+# Para gerar um segredo:
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 ```
 
 ### 4. Instale e rode
@@ -152,6 +154,41 @@ cp .env.example .env
 npm install
 npm run dev
 # API rodando em http://localhost:3001
+```
+
+---
+
+## Segurança
+
+- **401:** falta o token, ou ele é inválido, expirado ou assinado de outra forma.
+- **403:** o token é válido, mas o usuário não é administrador.
+- O cadastro é aberto e **nunca** cria administradores. Para promover um usuário, use o SQL abaixo no seu banco:
+
+```sql
+UPDATE users SET is_admin = TRUE WHERE email = 'seu-email@exemplo.com';
+```
+
+- Banco criado antes dessa mudança? Rode a migração:
+
+```bash
+psql -U postgres -d gameguide -f src/config/migrations/001_add_is_admin.sql
+```
+
+- **Aviso sobre o histórico:** versões antigas do `.env.example` tinham valores preenchidos para senha do banco e `JWT_SECRET`. Eles continuam no histórico do Git e devem ser considerados públicos. Não os use em nenhum ambiente.
+
+### Ainda não resolvido
+
+Limite de tentativas no login, validação dos dados de entrada, CORS restrito e proteção contra progresso duplicado. Não use esta API em produção sem tratar esses pontos.
+
+---
+
+## Testes
+
+Os testes sobem o servidor contra um PostgreSQL **descartável** (as tabelas são apagadas). O nome do banco precisa terminar em `_test`.
+
+```bash
+createdb -U postgres gameguide_test
+npm test
 ```
 
 ---
